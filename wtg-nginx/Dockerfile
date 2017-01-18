@@ -1,4 +1,4 @@
-FROM nginx:stable-alpine
+FROM nginx:stable
 
 ADD nginx.conf /etc/nginx/
 ADD wiringa.conf /etc/nginx/sites-available/
