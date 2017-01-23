@@ -1,9 +1,17 @@
-FROM php:7.1-fpm
+FROM php:7.1-cli
 
 MAINTAINER Thomas Wiringa <thomas.wiringa@gmail.com>
 
+ENV GIT_BRANCH 'master'
+
+# Add Node 6.x
 RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -
 
+# Add Yarn
+RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
+ && echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
+
+# Install packages
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     git \
@@ -11,51 +19,39 @@ RUN apt-get update \
     unzip \
     wget \
     nodejs \
+    yarn \
  && apt-get clean -y \
  && apt-get autoremove -y
 
-RUN mkdir -p /var/www/html \
+# Clear the existing html folder
+RUN rm -rf /var/www/html \
+ && mkdir -p /var/www/html \
  && chown -R www-data /var/www
 
+# Add a cron job to run the artisan scheduler
 RUN echo '* * * * * www-data php /var/www/html/artisan schedule:run >> /dev/null 2>&1' > /etc/cron.d/artisan-schedule \
  && chmod 0644 /etc/cron.d/artisan-schedule \
  && touch /var/log/cron.log
 
+# Install PHP extensions
 RUN docker-php-ext-install \
     mbstring \
     pdo_mysql \
     tokenizer \
     opcache
 
-ADD ./wiringa.ini /usr/local/etc/php/conf.d
-ADD ./wiringa.pool.conf /usr/local/etc/php-fpm.d/
+# This is the setup script which will clone or pull the repo from github
+ADD ./docker-entrypoint.sh /docker-entrypoint.sh
 
-WORKDIR /var/www/html
+# Set the user id of www-data to 1000
+RUN usermod -u 1000 www-data
 
-RUN php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
- && php -r "if (hash_file('SHA384', 'composer-setup.php') === '55d6ead61b29c7bdee5cccfb50076874187bd9f21f65d8991d46ec5cc90518f447387fb9f76ebae1fbbacf329e583e30') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;" \
- && php composer-setup.php \
- && php -r "unlink('composer-setup.php');" \
- && mv composer.phar /bin/composer
-
-RUN npm install --global yarn
-
+# Run everything as www-data from here
 USER www-data
 
-RUN rm -rf /var/www/html/*
+# Set the entry directory
+WORKDIR /var/www/html
 
-RUN git clone https://github.com/Wiringa-Technische-Groothandel/webshop /var/www/html
+VOLUME /var/www/html
 
-RUN cp .env.docker .env
-
-RUN composer install --no-dev -o \
- && rm -rf bootstrap/cache/*
-
-RUN yarn \
- && node_modules/.bin/gulp --production
-
-VOLUME /var/www
-
-EXPOSE 9000
-
-CMD ["php-fpm"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
